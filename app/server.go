@@ -35,6 +35,7 @@ func main() {
 			continue
 		}
 
+		log.Println("Accepted connection, handling client")
 		handleClient(c)
 	}
 }
@@ -42,21 +43,17 @@ func main() {
 func handleClient(c net.Conn) {
 	defer c.Close()
 
-	buf := make([]byte, 1024)
-	n, err := c.Read(buf)
-	if err != nil {
-		fmt.Println("Error reading:", err.Error())
-		return
+	for {
+		buf := make([]byte, 1024)
+		n, err := c.Read(buf)
+		if err != nil {
+			continue
+		}
+
+		response := buf[:n]
+		if string(response) == string(requestPing) {
+			log.Println("Received ping")
+			c.Write(responsePing)
+		}
 	}
-
-	response := buf[:n]
-	if string(response) == string(requestPing) {
-		log.Println("Received ping")
-		c.Write(responsePing)
-		return
-	}
-
-	log.Println("Received data", buf[:n])
-
-	c.Write(buf[:n])
 }
