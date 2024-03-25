@@ -36,7 +36,7 @@ func main() {
 		}
 
 		log.Println("Accepted connection, handling client")
-		handleClient(c)
+		go handleClient(c)
 	}
 }
 
