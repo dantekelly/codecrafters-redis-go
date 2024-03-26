@@ -110,6 +110,9 @@ func (r *Resp) parseArray() (Value, error) {
 	return v, nil
 }
 
+func encodeRDB(data string) []byte {
+	return []byte("$" + strconv.Itoa(len(data)) + "\r\n" + data)
+}
 func encodeBulkString(data string) []byte {
 	return []byte("$" + strconv.Itoa(len(data)) + "\r\n" + data + "\r\n")
 }
