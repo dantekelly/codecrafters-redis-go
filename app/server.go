@@ -44,16 +44,32 @@ func handleClient(c net.Conn) {
 	defer c.Close()
 
 	for {
-		buf := make([]byte, 1024)
-		n, err := c.Read(buf)
+		resp := NewResp(c)
+		value, err := resp.Parse()
 		if err != nil {
-			continue
+			fmt.Println(err)
+			return
 		}
 
-		response := buf[:n]
-		if string(response) == string(requestPing) {
-			log.Println("Received ping")
-			c.Write(responsePing)
+		switch value.Type {
+		case Array:
+			log.Print("Array received:", value.Array)
+			if value.Array[0].String == "ping" {
+				c.Write(responsePing)
+			} else if value.Array[0].String == "quit" {
+				return
+			} else if value.Array[0].String == "echo" {
+				if len(value.Array) == 2 {
+					res := encodeBulkString(value.Array[1].String)
+					c.Write([]byte(res))
+				} else {
+					c.Write([]byte("-ERR wrong number of arguments for 'echo' command\r\n"))
+				}
+			} else {
+				c.Write([]byte("+OK\r\n"))
+			}
+		default:
+			c.Write([]byte("+OK\r\n"))
 		}
 	}
 }
