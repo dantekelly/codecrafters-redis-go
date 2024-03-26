@@ -10,16 +10,6 @@ import (
 	"os"
 )
 
-var requestPing = []byte("*1\r\n$4\r\nping\r\n")
-
-type RedisServer struct {
-	Database map[string]string
-}
-
-func NewRedisServer() *RedisServer {
-	return &RedisServer{Database: make(map[string]string)}
-}
-
 func main() {
 	redis := NewRedisServer()
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -62,7 +52,6 @@ func handleClient(c net.Conn, redis *RedisServer) {
 
 		switch value.Type {
 		case Array:
-			log.Print("Array received:", value.Array)
 			command := strings.ToUpper(value.Array[0].String)
 
 			if command == "quit" {
@@ -78,7 +67,7 @@ func handleClient(c net.Conn, redis *RedisServer) {
 
 			c.Write(res)
 		default:
-			c.Write([]byte("+OK\r\n"))
+			c.Write(encodeString("OK"))
 		}
 	}
 }

@@ -71,10 +71,6 @@ func (r *Resp) parseBulkString() (Value, error) {
 
 	return v, nil
 }
-
-// String     = "+" // Format: +OK\r\n
-// BulkString = "$" // Format: $6\r\nfoobar\r\n
-// Array      = "*" // Format: *2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n
 func (r *Resp) parseArray() (Value, error) {
 	v := Value{Type: Array}
 	sb, _ := r.reader.ReadByte()
@@ -94,11 +90,9 @@ func (r *Resp) parseArray() (Value, error) {
 func encodeBulkString(data string) []byte {
 	return []byte("$" + strconv.Itoa(len(data)) + "\r\n" + data + "\r\n")
 }
-
 func encodeString(data string) []byte {
 	return []byte("+" + data + "\r\n")
 }
-
 func encodeError(data string) []byte {
 	return []byte("-ERR " + data + "\r\n")
 }
