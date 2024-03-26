@@ -11,13 +11,22 @@ import (
 )
 
 func main() {
+	argArray := os.Args[1:]
+	port := "6379"
+
+	if len(argArray) == 2 {
+		if argArray[0] == "--port" {
+			port = argArray[1]
+		}
+	}
+
 	redis := NewRedisServer()
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
 
 	// Uncomment this block to pass the first stage
 	//
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", port))
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
 		os.Exit(1)
@@ -25,7 +34,7 @@ func main() {
 
 	defer l.Close()
 
-	fmt.Println("Server is listening on port 6379")
+	fmt.Printf("Server is listening on port %s\n", port)
 
 	for {
 		c, err := l.Accept()
