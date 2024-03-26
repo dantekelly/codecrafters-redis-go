@@ -21,7 +21,6 @@ func main() {
 	replica := Replica{}
 
 	redis := NewRedisServer(port)
-	redis.Config.Port = port
 	redis.Config.Role = "master"
 	redis.Config.Replica = replica
 

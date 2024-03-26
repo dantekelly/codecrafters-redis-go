@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -67,7 +68,13 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 		if len(args) == 1 {
 			if args[0].String == "replication" {
 				config := redis.Config
-				configString := "role:" + config.Role
+				configString := fmt.Sprintf("# Replication\n")
+				configString += fmt.Sprintf("role:%s\n", config.Role)
+				if config.Role == "master" {
+					// configString += "\nconnected_slaves:" + strconv.Itoa(int(config.Connected_slaves))
+					configString += fmt.Sprintf("master_replid:%s\n", config.Replication.ID)
+					configString += fmt.Sprintf("master_repl_offset:%s\n", strconv.Itoa(config.Replication.Offset))
+				}
 
 				return encodeBulkString(configString), nil
 			}

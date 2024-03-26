@@ -7,9 +7,14 @@ type Item struct {
 	Expiry int64
 }
 
+type Replication struct {
+	ID     string
+	Offset int
+}
+
 type Config struct {
 	Port             string
-	Replication      string
+	Replication      Replication
 	Role             string
 	Connected_slaves uint
 	Replica          Replica
@@ -26,6 +31,10 @@ func NewRedisServer(port string) *RedisServer {
 			Port:             port,
 			Role:             "master",
 			Connected_slaves: 0,
+			Replication: Replication{
+				ID:     "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+				Offset: 0,
+			},
 		},
 		Database: make(map[string]Item),
 	}
