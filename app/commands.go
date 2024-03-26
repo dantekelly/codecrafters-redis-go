@@ -19,6 +19,9 @@ var (
 )
 
 func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error) {
+	command = strings.ToUpper(command)
+	command = strings.Trim(command, "\r\n")
+
 	switch command {
 	case "PING":
 		return encodeString("PONG"), nil
@@ -82,7 +85,26 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 		}
 
 		return encodeString("redis_version:0.0.1"), nil
+	case "REPLCONF":
+		if args[0].Type != BulkString {
+			log.Print("Invalid argument")
+			return nil, errors.New("invalid argument")
+		}
+		if len(args) < 2 || len(args) > 3 {
+			log.Print("Wrong number of arguments")
+			return nil, errors.New("wrong number of arguments")
+		}
+
+		if args[0].String == "listening-port" {
+			return encodeString("OK"), nil
+		}
+		if args[0].String == "capa" {
+			return encodeString("OK"), nil
+		}
+
+		return nil, errors.New("unknown argument")
 	default:
+		fmt.Println("Unknown command", command)
 		return encodeString("OK"), nil
 	}
 }

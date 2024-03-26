@@ -25,10 +25,10 @@ type RedisServer struct {
 	Config   Config
 }
 
-func NewRedisServer(port string) *RedisServer {
+func NewRedisServer() *RedisServer {
 	return &RedisServer{
 		Config: Config{
-			Port:             port,
+			Port:             "6379",
 			Role:             "master",
 			Connected_slaves: 0,
 			Replication: Replication{

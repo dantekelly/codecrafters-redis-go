@@ -20,7 +20,7 @@ func main() {
 	port := "6379"
 	replica := Replica{}
 
-	redis := NewRedisServer(port)
+	redis := NewRedisServer()
 	redis.Config.Role = "master"
 	redis.Config.Replica = replica
 
@@ -28,6 +28,7 @@ func main() {
 		switch argArray[i] {
 		case "--port":
 			port = argArray[i+1]
+			redis.Config.Port = port
 		case "--replicaof":
 			replica = Replica{
 				Host: argArray[i+1],
@@ -36,10 +37,6 @@ func main() {
 			redis.Config.Replica = replica
 			redis.Config.Role = "slave"
 		}
-	}
-
-	if redis.Config.Role == "slave" {
-		connectToMaster(redis)
 	}
 
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -55,6 +52,10 @@ func main() {
 	defer l.Close()
 
 	fmt.Printf("Server is listening on port %s\n", port)
+
+	if redis.Config.Role == "slave" {
+		go connectToMaster(redis)
+	}
 
 	for {
 		c, err := l.Accept()
@@ -78,14 +79,79 @@ func connectToMaster(redis *RedisServer) {
 	}
 	defer c.Close()
 
+	// 1st Ping
 	pingArray := []Value{{
 		Type: BulkString,
 		Bulk: "ping",
 	}}
-
 	encodedArray := encodeArray(pingArray)
 	c.Write(encodedArray)
-	log.Println("Sent PING to master", encodedArray, string(encodedArray))
+	log.Println("Sent PING to master")
+
+	previousCommands := make([]Value, 0)
+	for {
+		// lastCommand := previousCommands[len(previousCommands)-1]
+
+		resp := NewResp(c)
+		value, err := resp.Parse()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		previousCommands = append(previousCommands, value)
+
+		if len(previousCommands) == 1 {
+			if value.String != "PONG" {
+				fmt.Println("Failed to connect to master")
+				os.Exit(1)
+			}
+			log.Println("Received PONG from master")
+
+			replconf1 := []Value{{
+				Type: BulkString,
+				Bulk: "REPLCONF",
+			}, {
+				Type: BulkString,
+				Bulk: "listening-port",
+			}, {
+				Type: BulkString,
+				Bulk: redis.Config.Port,
+			}}
+			c.Write(encodeArray(replconf1))
+			log.Println("Sent REPLCONF listening-port to master")
+		}
+
+		if len(previousCommands) == 2 {
+			if value.String != "OK" {
+				fmt.Println("Failed to connect to master")
+				os.Exit(1)
+			}
+			log.Println("Received OK from master")
+
+			replconf2 := []Value{{
+				Type: BulkString,
+				Bulk: "REPLCONF",
+			}, {
+				Type: BulkString,
+				Bulk: "capa",
+			}, {
+				Type: BulkString,
+				Bulk: "psync2",
+			}}
+
+			c.Write(encodeArray(replconf2))
+			log.Println("Sent REPLCONF capa to master")
+		}
+
+		if len(previousCommands) == 3 {
+			if value.String != "OK" {
+				fmt.Println("Failed to connect to master")
+				os.Exit(1)
+			}
+			log.Println("Received OK from master")
+		}
+	}
+
 }
 
 func handleClient(c net.Conn, redis *RedisServer) {
@@ -102,10 +168,6 @@ func handleClient(c net.Conn, redis *RedisServer) {
 		switch value.Type {
 		case Array:
 			command := strings.ToUpper(value.Array[0].String)
-
-			if command == "quit" {
-				return
-			}
 
 			res, err := RunCommand(redis, command, value.Array[1:])
 			if err != nil {
