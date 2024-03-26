@@ -7,12 +7,27 @@ type Item struct {
 	Expiry int64
 }
 
-type RedisServer struct {
-	Database map[string]Item
+type Config struct {
+	Port             string
+	Replication      string
+	Role             string
+	Connected_slaves uint
 }
 
-func NewRedisServer() *RedisServer {
-	return &RedisServer{Database: make(map[string]Item)}
+type RedisServer struct {
+	Database map[string]Item
+	Config   Config
+}
+
+func NewRedisServer(port string) *RedisServer {
+	return &RedisServer{
+		Config: Config{
+			Port:             port,
+			Role:             "master",
+			Connected_slaves: 0,
+		},
+		Database: make(map[string]Item),
+	}
 }
 
 func (r *RedisServer) Set(key, value string, expiry int) {

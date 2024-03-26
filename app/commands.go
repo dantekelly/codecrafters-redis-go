@@ -33,7 +33,6 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 		expiry := 0
 		if len(args) == 4 {
 			mod := strings.ToUpper(args[2].String)
-			log.Print("Arguments", args)
 			if mod == "PX" {
 				exp, err := strconv.Atoi(args[3].String)
 				if err != nil {
@@ -64,6 +63,18 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 		}
 
 		return encodeBulkString(value.Value), nil
+	case "INFO":
+		if len(args) == 1 {
+			if args[0].String == "replication" {
+				config := redis.Config
+				configString := "role:" + config.Role
+
+				return encodeBulkString(configString), nil
+			}
+			return encodeBulkString("redis_version:0.0.1"), nil
+		}
+
+		return encodeString("redis_version:0.0.1"), nil
 	default:
 		return encodeString("OK"), nil
 	}

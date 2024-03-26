@@ -31,6 +31,11 @@ func NewResp(r io.Reader) *Resp {
 }
 
 func (r *Resp) Parse() (Value, error) {
+	// byteCount := r.reader.Size()
+	// fullBytes, _ := r.reader.Peek(byteCount)
+	// fmt.Println("Full Bytes: ", fullBytes)
+	// fmt.Println("Full String: ", string(fullBytes))
+
 	b, err := r.reader.ReadByte()
 	_type := string(b)
 
@@ -51,19 +56,37 @@ func (r *Resp) Parse() (Value, error) {
 	}
 }
 
+func (r *Resp) parseLine() (string, error) {
+	b, err := r.reader.ReadBytes('\n')
+	if err != nil {
+		return "", err
+	}
+
+	cleanB := string(b[:len(b)-2])
+
+	return string(cleanB), nil
+}
+func (r *Resp) parseInt() (int, error) {
+	b, err := r.parseLine()
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(b)
+}
+
 func (r *Resp) parseString() (Value, error) {
 	v := Value{Type: String}
-	b, _ := r.reader.ReadBytes('\n')
-	v.String = string(b)
+	b, _ := r.parseLine()
+	v.String = b
 
 	return v, nil
 }
 func (r *Resp) parseBulkString() (Value, error) {
 	v := Value{Type: BulkString}
-	size, _ := r.reader.ReadByte()
-	strSize, _ := strconv.ParseInt(string(size), 10, 64)
-	// remove the first character and \r\n
-	r.reader.Discard(2)
+
+	strSize, _ := r.parseInt()
+
 	data := make([]byte, strSize)
 	r.reader.Read(data)
 
@@ -78,7 +101,6 @@ func (r *Resp) parseArray() (Value, error) {
 
 	v.Array = make([]Value, arraySize)
 	for i := 0; i < int(arraySize); i++ {
-		log.Print("Parsing Array element")
 		r.reader.Discard(2)
 		value, _ := r.Parse()
 		v.Array[i] = value
