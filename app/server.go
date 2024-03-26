@@ -149,6 +149,20 @@ func connectToMaster(redis *RedisServer) {
 				os.Exit(1)
 			}
 			log.Println("Received OK from master")
+
+			psyncResp := []Value{{
+				Type: BulkString,
+				Bulk: "PSYNC",
+			}, {
+				Type: BulkString,
+				Bulk: "?",
+			}, {
+				Type: BulkString,
+				Bulk: "-1",
+			}}
+			c.Write(encodeArray(psyncResp))
+
+			log.Println("Sent PSYNC to master")
 		}
 	}
 

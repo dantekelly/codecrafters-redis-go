@@ -10,12 +10,13 @@ import (
 )
 
 var (
-	ErrWrongNumberOfArgsSet  = errors.New("wrong number of arguments for 'set' command")
-	ErrWrongNumberOfArgsEcho = errors.New("wrong number of arguments for 'echo' command")
-	ErrWrongNumberOfArgsGet  = errors.New("wrong number of arguments for 'get' command")
-	ErrKeyNotFound           = "$-1\r\n"
-	ErrUnknownCommand        = errors.New("unknown command")
-	ErrBadNumberFormat       = errors.New("value is not an integer or out of range")
+	ErrWrongNumberOfArgsSet   = errors.New("wrong number of arguments for 'set' command")
+	ErrWrongNumberOfArgsEcho  = errors.New("wrong number of arguments for 'echo' command")
+	ErrWrongNumberOfArgsGet   = errors.New("wrong number of arguments for 'get' command")
+	ErrWrongNumberOfArgsPsync = errors.New("wrong number of arguments for 'psync' command")
+	ErrKeyNotFound            = "$-1\r\n"
+	ErrUnknownCommand         = errors.New("unknown command")
+	ErrBadNumberFormat        = errors.New("value is not an integer or out of range")
 )
 
 func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error) {
@@ -103,6 +104,18 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 		}
 
 		return nil, errors.New("unknown argument")
+	case "PSYNC":
+		if len(args) != 2 {
+			return nil, ErrWrongNumberOfArgsPsync
+		}
+
+		if args[0].String == "?" && args[1].String == "-1" {
+			fullResString := fmt.Sprintf("FULLRESYNC %s 0", redis.Config.Replication.ID)
+			return encodeString(fullResString), nil
+		}
+
+		return nil, errors.New("arguments are invalid")
+
 	default:
 		fmt.Println("Unknown command", command)
 		return encodeString("OK"), nil
