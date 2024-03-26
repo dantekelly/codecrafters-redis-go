@@ -91,6 +91,14 @@ func (r *Resp) parseArray() (Value, error) {
 	return v, nil
 }
 
-func encodeBulkString(data string) string {
-	return "$" + strconv.Itoa(len(data)) + "\r\n" + data + "\r\n"
+func encodeBulkString(data string) []byte {
+	return []byte("$" + strconv.Itoa(len(data)) + "\r\n" + data + "\r\n")
+}
+
+func encodeString(data string) []byte {
+	return []byte("+" + data + "\r\n")
+}
+
+func encodeError(data string) []byte {
+	return []byte("-ERR " + data + "\r\n")
 }

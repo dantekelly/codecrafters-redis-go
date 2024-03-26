@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	// Uncomment this block to pass the first stage
 	"net"
@@ -10,9 +11,17 @@ import (
 )
 
 var requestPing = []byte("*1\r\n$4\r\nping\r\n")
-var responsePing = []byte("+PONG\r\n")
+
+type RedisServer struct {
+	Database map[string]string
+}
+
+func NewRedisServer() *RedisServer {
+	return &RedisServer{Database: make(map[string]string)}
+}
 
 func main() {
+	redis := NewRedisServer()
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
 
@@ -36,11 +45,11 @@ func main() {
 		}
 
 		log.Println("Accepted connection, handling client")
-		go handleClient(c)
+		go handleClient(c, redis)
 	}
 }
 
-func handleClient(c net.Conn) {
+func handleClient(c net.Conn, redis *RedisServer) {
 	defer c.Close()
 
 	for {
@@ -54,20 +63,20 @@ func handleClient(c net.Conn) {
 		switch value.Type {
 		case Array:
 			log.Print("Array received:", value.Array)
-			if value.Array[0].String == "ping" {
-				c.Write(responsePing)
-			} else if value.Array[0].String == "quit" {
+			command := strings.ToUpper(value.Array[0].String)
+
+			if command == "quit" {
 				return
-			} else if value.Array[0].String == "echo" {
-				if len(value.Array) == 2 {
-					res := encodeBulkString(value.Array[1].String)
-					c.Write([]byte(res))
-				} else {
-					c.Write([]byte("-ERR wrong number of arguments for 'echo' command\r\n"))
-				}
-			} else {
-				c.Write([]byte("+OK\r\n"))
 			}
+
+			res, err := RunCommand(redis, command, value.Array[1:])
+			if err != nil {
+				errorBytes := encodeError(err.Error())
+				c.Write(errorBytes)
+				return
+			}
+
+			c.Write(res)
 		default:
 			c.Write([]byte("+OK\r\n"))
 		}
