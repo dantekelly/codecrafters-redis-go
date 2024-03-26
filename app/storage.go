@@ -12,6 +12,7 @@ type Config struct {
 	Replication      string
 	Role             string
 	Connected_slaves uint
+	Replica          Replica
 }
 
 type RedisServer struct {

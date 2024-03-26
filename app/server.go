@@ -10,19 +10,34 @@ import (
 	"os"
 )
 
+type Replica struct {
+	Host string
+	Port string
+}
+
 func main() {
 	argArray := os.Args[1:]
 	port := "6379"
-
-	if len(argArray) == 2 {
-		if argArray[0] == "--port" {
-			port = argArray[1]
-		}
-	}
+	replica := Replica{}
 
 	redis := NewRedisServer(port)
 	redis.Config.Port = port
 	redis.Config.Role = "master"
+	redis.Config.Replica = replica
+
+	for i := 0; i < len(argArray); i++ {
+		switch argArray[i] {
+		case "--port":
+			port = argArray[i+1]
+		case "--replicaof":
+			replica = Replica{
+				Host: argArray[i+1],
+				Port: argArray[i+2],
+			}
+			redis.Config.Replica = replica
+			redis.Config.Role = "slave"
+		}
+	}
 
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
