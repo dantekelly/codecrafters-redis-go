@@ -18,6 +18,7 @@ const (
 type Value struct {
 	Type   string
 	String string
+	Bulk   string
 	Num    int
 	Array  []Value
 }
@@ -117,4 +118,17 @@ func encodeString(data string) []byte {
 }
 func encodeError(data string) []byte {
 	return []byte("-ERR " + data + "\r\n")
+}
+func encodeArray(data []Value) []byte {
+	resultString := ""
+	for _, v := range data {
+		switch v.Type {
+		case String:
+			resultString += string(encodeString(v.String))
+		case BulkString:
+			resultString += string(encodeBulkString(v.Bulk))
+		}
+	}
+
+	return []byte("*" + strconv.Itoa(len(data)) + "\r\n" + resultString)
 }

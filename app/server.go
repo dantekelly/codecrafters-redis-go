@@ -38,6 +38,10 @@ func main() {
 		}
 	}
 
+	if redis.Config.Role == "slave" {
+		connectToMaster(redis)
+	}
+
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
 
@@ -62,6 +66,26 @@ func main() {
 		log.Println("Accepted connection, handling client")
 		go handleClient(c, redis)
 	}
+}
+
+func connectToMaster(redis *RedisServer) {
+	fmt.Println("Connecting to master")
+
+	c, err := net.Dial("tcp", fmt.Sprintf("%s:%s", redis.Config.Replica.Host, redis.Config.Replica.Port))
+	if err != nil {
+		fmt.Println("Failed to connect to master", err)
+		os.Exit(1)
+	}
+	defer c.Close()
+
+	pingArray := []Value{{
+		Type: BulkString,
+		Bulk: "ping",
+	}}
+
+	encodedArray := encodeArray(pingArray)
+	c.Write(encodedArray)
+	log.Println("Sent PING to master", encodedArray, string(encodedArray))
 }
 
 func handleClient(c net.Conn, redis *RedisServer) {
