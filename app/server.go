@@ -91,8 +91,6 @@ func connectToMaster(redis *RedisServer) {
 
 	previousCommands := make([]Value, 0)
 	for {
-		// lastCommand := previousCommands[len(previousCommands)-1]
-
 		resp := NewResp(c)
 		value, err := resp.Parse()
 		if err != nil {
@@ -165,6 +163,30 @@ func connectToMaster(redis *RedisServer) {
 
 			log.Println("Sent PSYNC to master")
 		}
+
+		// log.Println("Received from client", value, value.Type)
+
+		// log.Println("Received from master", value)
+		switch value.Type {
+		case Array:
+			// log.Println("Received from master", value)
+			commandString := value.Array[0].String
+			if value.Array[0].Type == BulkString {
+				commandString = value.Array[0].Bulk
+			}
+			command := strings.ToUpper(commandString)
+
+			res, err := RunCommand(redis, command, value.Array[1:])
+			if err != nil {
+				errorBytes := encodeError(err.Error())
+				c.Write(errorBytes)
+				return
+			}
+
+			c.Write(res)
+		default:
+			// c.Write(encodeString("OK"))
+		}
 	}
 
 }
@@ -182,7 +204,11 @@ func handleClient(c net.Conn, redis *RedisServer) {
 
 		switch value.Type {
 		case Array:
-			command := strings.ToUpper(value.Array[0].String)
+			commandString := value.Array[0].String
+			if value.Array[0].Type == BulkString {
+				commandString = value.Array[0].Bulk
+			}
+			command := strings.ToUpper(commandString)
 
 			res, err := RunCommand(redis, command, value.Array[1:])
 			if err != nil {
@@ -201,7 +227,15 @@ func handleClient(c net.Conn, redis *RedisServer) {
 				}
 
 				c.Write(encodeRDB(string(emptyRDB)))
+
+				redis.Config.Slaves = append(redis.Config.Slaves, &Slave{
+					Conn: c,
+				})
+
+				log.Println("Added slave to config", redis.Config.Slaves)
 			}
+		case String:
+
 		default:
 			c.Write(encodeString("OK"))
 		}

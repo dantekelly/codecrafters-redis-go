@@ -19,9 +19,28 @@ var (
 	ErrBadNumberFormat        = errors.New("value is not an integer or out of range")
 )
 
+func propogateCommand(redis *RedisServer, command string, args []Value) {
+	for _, slave := range redis.Config.Slaves {
+		arr := make([]Value, 0)
+		arr = append(arr, Value{
+			Type: BulkString,
+			Bulk: command,
+		})
+		arr = append(arr, args...)
+		encodedCommand := encodeArray(arr)
+		log.Println("Propogating command to slave", string(encodedCommand))
+		_, err := slave.Conn.Write(encodedCommand)
+		if err != nil {
+			log.Print("Error writing to slave", err)
+		}
+	}
+}
+
 func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error) {
 	command = strings.ToUpper(command)
 	command = strings.Trim(command, "\r\n")
+
+	log.Println("Running Command: ", command, args)
 
 	switch command {
 	case "PING":
@@ -30,16 +49,16 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 		if len(args) != 1 {
 			return []byte(""), ErrWrongNumberOfArgsEcho
 		}
-		return encodeBulkString(args[0].String), nil
+		return encodeBulkString(args[0].Raw), nil
 	case "SET":
 		if len(args) < 2 || len(args) == 3 || len(args) > 4 {
 			return nil, ErrWrongNumberOfArgsSet
 		}
 		expiry := 0
 		if len(args) == 4 {
-			mod := strings.ToUpper(args[2].String)
+			mod := strings.ToUpper(args[2].Raw)
 			if mod == "PX" {
-				exp, err := strconv.Atoi(args[3].String)
+				exp, err := strconv.Atoi(args[3].Raw)
 				if err != nil {
 					log.Print("Error converting string to integer, bad argument", err)
 					return nil, ErrBadNumberFormat
@@ -48,21 +67,22 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 			}
 		}
 
-		redis.Set(args[0].String, args[1].String, expiry)
+		redis.Set(args[0].Raw, args[1].Raw, expiry)
 
+		propogateCommand(redis, command, args)
 		return encodeString("OK"), nil
 	case "GET":
 		if len(args) != 1 {
 			return nil, ErrWrongNumberOfArgsGet
 		}
 
-		value, ok := redis.Get(args[0].String)
+		value, ok := redis.Get(args[0].Raw)
 		if !ok {
 			return []byte(ErrKeyNotFound), nil
 		}
 		if value.Expiry > 0 {
 			if value.Expiry < time.Now().UnixMilli() {
-				redis.Del(args[0].String)
+				redis.Del(args[0].Raw)
 				return []byte(ErrKeyNotFound), nil
 			}
 		}
@@ -70,7 +90,7 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 		return encodeBulkString(value.Value), nil
 	case "INFO":
 		if len(args) == 1 {
-			if args[0].String == "replication" {
+			if args[0].Raw == "replication" {
 				config := redis.Config
 				configString := fmt.Sprintf("# Replication\n")
 				configString += fmt.Sprintf("role:%s\n", config.Role)
@@ -96,10 +116,10 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 			return nil, errors.New("wrong number of arguments")
 		}
 
-		if args[0].String == "listening-port" {
+		if args[0].Raw == "listening-port" {
 			return encodeString("OK"), nil
 		}
-		if args[0].String == "capa" {
+		if args[0].Raw == "capa" {
 			return encodeString("OK"), nil
 		}
 
@@ -109,13 +129,12 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 			return nil, ErrWrongNumberOfArgsPsync
 		}
 
-		if args[0].String == "?" && args[1].String == "-1" {
+		if args[0].Raw == "?" && args[1].Raw == "-1" {
 			fullResString := fmt.Sprintf("FULLRESYNC %s 0", redis.Config.Replication.ID)
 			return encodeString(fullResString), nil
 		}
 
 		return nil, errors.New("arguments are invalid")
-
 	default:
 		fmt.Println("Unknown command", command)
 		return encodeString("OK"), nil

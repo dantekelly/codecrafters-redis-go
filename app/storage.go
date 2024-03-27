@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"net"
+	"time"
+)
 
 type Item struct {
 	Value  string
@@ -12,11 +15,16 @@ type Replication struct {
 	Offset int
 }
 
+type Slave struct {
+	Conn net.Conn
+}
+
 type Config struct {
 	Port             string
 	Replication      Replication
 	Role             string
 	Connected_slaves uint
+	Slaves           []*Slave
 	Replica          Replica
 }
 

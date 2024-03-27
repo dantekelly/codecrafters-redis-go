@@ -19,7 +19,7 @@ type Value struct {
 	Type   string
 	String string
 	Bulk   string
-	Num    int
+	Raw    string
 	Array  []Value
 }
 
@@ -80,6 +80,7 @@ func (r *Resp) parseString() (Value, error) {
 	v := Value{Type: String}
 	b, _ := r.parseLine()
 	v.String = b
+	v.Raw = b
 
 	return v, nil
 }
@@ -91,7 +92,8 @@ func (r *Resp) parseBulkString() (Value, error) {
 	data := make([]byte, strSize)
 	r.reader.Read(data)
 
-	v.String = string(data)
+	v.Bulk = string(data)
+	v.Raw = string(data)
 
 	return v, nil
 }
