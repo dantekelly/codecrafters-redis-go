@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,7 @@ type Replication struct {
 
 type Slave struct {
 	Conn net.Conn
+	c    chan string
 }
 
 type Config struct {
@@ -29,8 +31,9 @@ type Config struct {
 }
 
 type RedisServer struct {
-	Database map[string]Item
-	Config   Config
+	Store  map[string]Item
+	Mutex  sync.RWMutex
+	Config Config
 }
 
 func NewRedisServer() *RedisServer {
@@ -44,23 +47,33 @@ func NewRedisServer() *RedisServer {
 				Offset: 0,
 			},
 		},
-		Database: make(map[string]Item),
+		Store: make(map[string]Item),
+		Mutex: sync.RWMutex{},
 	}
 }
 
 func (r *RedisServer) Set(key, value string, expiry int) {
-	r.Database[key] = Item{Value: value, Expiry: 0}
+	r.Mutex.Lock()
+	defer r.Mutex.Unlock()
+	r.Store[key] = Item{Value: value, Expiry: 0}
 
 	if expiry > 0 {
-		r.Database[key] = Item{Value: value, Expiry: time.Now().UnixMilli() + int64(expiry)}
+		r.Store[key] = Item{Value: value, Expiry: time.Now().UnixMilli() + int64(expiry)}
 	}
 }
 
 func (r *RedisServer) Get(key string) (Item, bool) {
-	value, ok := r.Database[key]
+	r.Mutex.Lock()
+	defer r.Mutex.Unlock()
+
+	value, ok := r.Store[key]
+
 	return value, ok
 }
 
 func (r *RedisServer) Del(key string) {
-	delete(r.Database, key)
+	r.Mutex.Lock()
+	defer r.Mutex.Unlock()
+
+	delete(r.Store, key)
 }
