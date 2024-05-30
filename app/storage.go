@@ -18,7 +18,6 @@ type Replication struct {
 
 type Slave struct {
 	Conn net.Conn
-	c    chan string
 }
 
 type Config struct {
@@ -30,10 +29,17 @@ type Config struct {
 	Replica          Replica
 }
 
+type Command struct {
+	Conn    net.Conn
+	Command Value
+}
+
 type RedisServer struct {
-	Store  map[string]Item
-	Mutex  sync.RWMutex
-	Config Config
+	Store    map[string]Item
+	Mutex    sync.RWMutex
+	Config   Config
+	Commands chan Command
+	wg       sync.WaitGroup
 }
 
 func NewRedisServer() *RedisServer {
@@ -47,8 +53,9 @@ func NewRedisServer() *RedisServer {
 				Offset: 0,
 			},
 		},
-		Store: make(map[string]Item),
-		Mutex: sync.RWMutex{},
+		Store:    make(map[string]Item),
+		Mutex:    sync.RWMutex{},
+		Commands: make(chan Command, 100),
 	}
 }
 
@@ -63,8 +70,8 @@ func (r *RedisServer) Set(key, value string, expiry int) {
 }
 
 func (r *RedisServer) Get(key string) (Item, bool) {
-	r.Mutex.Lock()
-	defer r.Mutex.Unlock()
+	r.Mutex.RLock()
+	defer r.Mutex.RUnlock()
 
 	value, ok := r.Store[key]
 

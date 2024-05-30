@@ -1,8 +1,8 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -26,9 +26,11 @@ func processArgs() (string, *Replica) {
 		case "--port":
 			port = argArray[i+1]
 		case "--replicaof":
+			host := strings.Split(argArray[i+1], " ")[0]
+			port := strings.Split(argArray[i+1], " ")[1]
 			replica = &Replica{
-				Host: argArray[i+1],
-				Port: argArray[i+2],
+				Host: host,
+				Port: port,
 			}
 		}
 	}
@@ -54,17 +56,19 @@ func main() {
 	// Uncomment this block to pass the first stage
 	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", port))
 	if err != nil {
-		log.Println("Failed to bind to port 6379")
+		log.Println("Failed to bind to port", port)
 		os.Exit(1)
 	}
-
 	defer l.Close()
 
-	log.Printf("Server is listening on port %s\n", port)
+	// Start command processing worker
+	redis.wg.Add(1)
+	go CommandWorker(redis)
 
 	if redis.Config.Role == "slave" {
-		log.Println("Starting as slave", redis.Config.Replica.Host, redis.Config.Replica.Port)
-		go connectToMaster(redis)
+		go handleMaster(redis)
+	} else {
+		log.Println("[Master] Waiting for connections")
 	}
 
 	for {
@@ -79,128 +83,100 @@ func main() {
 	}
 }
 
-func connectToMaster(redis *RedisServer) {
-	log.Println("Connecting to master")
+func handleMaster(redis *RedisServer) {
+	log.Println("[Slave] Connecting to master")
 
 	c, err := net.Dial("tcp", fmt.Sprintf("%s:%s", redis.Config.Replica.Host, redis.Config.Replica.Port))
 	if err != nil {
-		log.Println("Failed to connect to master", err)
+		log.Println("[Slave] Failed to connect to master", err)
 		os.Exit(1)
 	}
-	defer c.Close()
+	defer func() {
+		c.Close()
+		log.Println("[Slave] Connection to master closed")
+	}()
 
 	// 1st Ping
+	connected := false
 	pingArray := []Value{{
 		Type: BulkString,
 		Bulk: "ping",
 	}}
 	encodedArray := encodeArray(pingArray)
 	c.Write(encodedArray)
+	step := 1
 
-	previousCommands := make([]Value, 0)
-
+	resp := NewResp(c)
 	for {
-		resp := NewResp(c)
 		value, err := resp.Parse()
 		if err != nil {
-			log.Println(err)
+			log.Println("[Slave] Error parsing command:", err)
 			return
 		}
-		previousCommands = append(previousCommands, value)
 
-		if len(previousCommands) == 1 {
-			if value.String != "PONG" {
-				log.Println("Failed to connect to master")
+		log.Printf("[Slave] Received command from master: %+v\n", value)
+
+		if !connected {
+			if step == 1 && value.Type == String && value.String == "PONG" {
+				replconf1 := []Value{{
+					Type: BulkString,
+					Bulk: "REPLCONF",
+				}, {
+					Type: BulkString,
+					Bulk: "listening-port",
+				}, {
+					Type: BulkString,
+					Bulk: redis.Config.Port,
+				}}
+				step++
+
+				log.Printf("[Slave] Sending REPLCONF listening-port %s\n", redis.Config.Port)
+				c.Write(encodeArray(replconf1))
+			} else if step == 2 && value.Type == String && value.String == "OK" {
+				replconf2 := []Value{{
+					Type: BulkString,
+					Bulk: "REPLCONF",
+				}, {
+					Type: BulkString,
+					Bulk: "capa",
+				}, {
+					Type: BulkString,
+					Bulk: "psync2",
+				}}
+
+				step++
+				log.Println("[Slave] Sending REPLCONF capa psync2")
+				c.Write(encodeArray(replconf2))
+			} else if step == 3 && value.Type == String && value.String == "OK" {
+				psyncResp := []Value{{
+					Type: BulkString,
+					Bulk: "PSYNC",
+				}, {
+					Type: BulkString,
+					Bulk: "?",
+				}, {
+					Type: BulkString,
+					Bulk: "-1",
+				}}
+
+				step++
+				c.Write(encodeArray(psyncResp))
+			} else if step == 4 && value.Type == String && strings.HasPrefix(value.String, "FULLRESYNC") {
+				step++
+
+				log.Println("[Slave] Awaiting RDB File")
+			} else if step == 5 && value.Type == BulkString {
+				connected = true
+
+				log.Println("[Slave] Received RDB File")
+				log.Println("[Slave] Successfully connected to master")
+			} else {
+				log.Println("[Slave] Failed to connect to master")
 				os.Exit(1)
 			}
-
-			replconf1 := []Value{{
-				Type: BulkString,
-				Bulk: "REPLCONF",
-			}, {
-				Type: BulkString,
-				Bulk: "listening-port",
-			}, {
-				Type: BulkString,
-				Bulk: redis.Config.Port,
-			}}
-			c.Write(encodeArray(replconf1))
-		} else if len(previousCommands) == 2 {
-			if value.String != "OK" {
-				log.Println("Failed to connect to master")
-				os.Exit(1)
-			}
-
-			replconf2 := []Value{{
-				Type: BulkString,
-				Bulk: "REPLCONF",
-			}, {
-				Type: BulkString,
-				Bulk: "capa",
-			}, {
-				Type: BulkString,
-				Bulk: "psync2",
-			}}
-
-			c.Write(encodeArray(replconf2))
-		} else if len(previousCommands) == 3 {
-			if value.String != "OK" {
-				log.Println("Failed to connect to master")
-				os.Exit(1)
-			}
-
-			psyncResp := []Value{{
-				Type: BulkString,
-				Bulk: "PSYNC",
-			}, {
-				Type: BulkString,
-				Bulk: "?",
-			}, {
-				Type: BulkString,
-				Bulk: "-1",
-			}}
-			c.Write(encodeArray(psyncResp))
-
-			log.Println("Successfully connected to master")
 		} else {
-			switch value.Type {
-			case Array:
-				commandString := value.Array[0].String
-				if value.Array[0].Type == BulkString {
-					commandString = value.Array[0].Bulk
-				}
-				command := strings.ToUpper(commandString)
-
-				// log.Println("Running Command from master: ", command, value.Array[1:])
-				res, err := RunCommand(redis, command, value.Array[1:])
-				if err != nil {
-					errorBytes := encodeError(err.Error())
-					c.Write(errorBytes)
-					return
-				}
-
-				c.Write(res)
-
-				if command == "PSYNC" {
-					emptyRDB, err := hex.DecodeString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")
-					if err != nil {
-						log.Println(err)
-						return
-					}
-
-					c.Write(encodeRDB(string(emptyRDB)))
-
-					redis.Config.Slaves = append(redis.Config.Slaves, &Slave{
-						Conn: c,
-					})
-
-					log.Println("Connected to slave")
-				}
-			case String:
-
-			default:
-				c.Write(encodeString("OK"))
-			}
+			log.Println("[Slave] Sending command to queue")
+			redis.Commands <- Command{Conn: c, Command: value}
 		}
 	}
 }
@@ -208,51 +184,19 @@ func connectToMaster(redis *RedisServer) {
 func handleClient(c net.Conn, redis *RedisServer) {
 	defer c.Close()
 
+	resp := NewResp(c)
 	for {
-		resp := NewResp(c)
 		value, err := resp.Parse()
 		if err != nil {
-			log.Println(err)
+			if err == io.EOF {
+				log.Printf("Client connection closed: %s", c.RemoteAddr())
+				return
+			}
+			log.Println("Error parsing command:", err)
 			return
 		}
 
-		switch value.Type {
-		case Array:
-			commandString := value.Array[0].String
-			if value.Array[0].Type == BulkString {
-				commandString = value.Array[0].Bulk
-			}
-			command := strings.ToUpper(commandString)
-
-			// log.Println("Running Command from master: ", command, value.Array[1:])
-			res, err := RunCommand(redis, command, value.Array[1:])
-			if err != nil {
-				errorBytes := encodeError(err.Error())
-				c.Write(errorBytes)
-				return
-			}
-
-			c.Write(res)
-
-			if command == "PSYNC" {
-				emptyRDB, err := hex.DecodeString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				c.Write(encodeRDB(string(emptyRDB)))
-
-				redis.Config.Slaves = append(redis.Config.Slaves, &Slave{
-					Conn: c,
-				})
-
-				log.Println("Connected to slave")
-			}
-		case String:
-
-		default:
-			c.Write(encodeString("OK"))
-		}
+		log.Printf("Sending command to queue: %+v\n", value)
+		redis.Commands <- Command{Conn: c, Command: value}
 	}
 }

@@ -9,8 +9,8 @@ import (
 
 const (
 	String     = "+" // Format: +OK\r\n
-	Error      = "-" // Format:
-	Integer    = ":" // Format:
+	Error      = "-" // Format: -ERR message\r\n
+	Integer    = ":" // Format: :1000\r\n
 	BulkString = "$" // Format: $6\r\nfoobar\r\n
 	Array      = "*" // Format: *2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n
 )
@@ -32,26 +32,23 @@ func NewResp(r io.Reader) *Resp {
 }
 
 func (r *Resp) Parse() (Value, error) {
-	// byteCount := r.reader.Size()
-	// fullBytes, _ := r.reader.Peek(byteCount)
-	// fmt.Println("Full Bytes: ", fullBytes)
-	// fmt.Println("Full String: ", string(fullBytes))
-
 	b, err := r.reader.ReadByte()
-	_type := string(b)
-
 	if err != nil {
 		return Value{}, err
 	}
 
+	_type := string(b)
 	switch _type {
 	case String:
 		return r.parseString()
 	case BulkString:
+		// Check if it's a RDB file or a normal bulk string
 		return r.parseBulkString()
 	case Array:
 		return r.parseArray()
 	default:
+		log.Printf("Unknown byte: %b", b)
+		log.Printf("Unknown string byte: %s", string(b))
 		log.Printf("Unknown type: %s", _type)
 		return Value{}, nil
 	}
@@ -63,7 +60,7 @@ func (r *Resp) parseLine() (string, error) {
 		return "", err
 	}
 
-	cleanB := string(b[:len(b)-2])
+	cleanB := string(b[:len(b)-2]) // Remove the \r\n
 
 	return string(cleanB), nil
 }
@@ -78,34 +75,64 @@ func (r *Resp) parseInt() (int, error) {
 
 func (r *Resp) parseString() (Value, error) {
 	v := Value{Type: String}
-	b, _ := r.parseLine()
+	b, err := r.parseLine()
+	if err != nil {
+		return Value{}, err
+	}
 	v.String = b
 	v.Raw = b
 
 	return v, nil
 }
+
 func (r *Resp) parseBulkString() (Value, error) {
 	v := Value{Type: BulkString}
 
-	strSize, _ := r.parseInt()
+	strSize, err := r.parseInt()
+	if err != nil {
+		return Value{}, err
+	}
 
 	data := make([]byte, strSize)
-	r.reader.Read(data)
+	_, err = io.ReadFull(r.reader, data)
+	if err != nil {
+		return Value{}, err
+	}
 
 	v.Bulk = string(data)
 	v.Raw = string(data)
+
+	// Sometimes this is actually an RDB file and not a normal bulk string that has a trailing \r\n
+	// Check if the next bytes are \r\n
+	b, err := r.reader.Peek(1)
+	if err != nil {
+		return Value{}, err
+	}
+
+	// If it's a \r, then it's a BulkString
+	if string(b) == "\r" {
+		// Discard the trailing \r\n
+		_, err = r.reader.Discard(2)
+		if err != nil {
+			return Value{}, err
+		}
+	}
 
 	return v, nil
 }
 func (r *Resp) parseArray() (Value, error) {
 	v := Value{Type: Array}
-	sb, _ := r.reader.ReadByte()
-	arraySize, _ := strconv.ParseInt(string(sb), 10, 64)
+	arraySize, err := r.parseInt()
+	if err != nil {
+		return Value{}, err
+	}
 
 	v.Array = make([]Value, arraySize)
 	for i := 0; i < int(arraySize); i++ {
-		r.reader.Discard(2)
-		value, _ := r.Parse()
+		value, err := r.Parse()
+		if err != nil {
+			return Value{}, err
+		}
 		v.Array[i] = value
 	}
 

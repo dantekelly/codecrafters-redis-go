@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -21,20 +22,84 @@ var (
 	ErrInvalidArgument        = errors.New("invalid argument")
 )
 
+// Worker to process commands sequentially
+func CommandWorker(redis *RedisServer) {
+	defer redis.wg.Done()
+	for cmd := range redis.Commands {
+		switch cmd.Command.Type {
+		case Array:
+			commandString := cmd.Command.Array[0].String
+			if cmd.Command.Array[0].Type == BulkString {
+				commandString = cmd.Command.Array[0].Bulk
+			}
+			command := strings.ToUpper(commandString)
+
+			res, err := RunCommand(redis, command, cmd.Command.Array[1:])
+			if err != nil {
+				errorBytes := encodeError(err.Error())
+
+				cmd.Conn.Write(errorBytes)
+				return
+			}
+
+			_, writeErr := cmd.Conn.Write(res)
+			if writeErr != nil {
+				log.Printf("Error writing to connection: %v", writeErr)
+			}
+
+			if command == "PSYNC" {
+				emptyRDB, err := hex.DecodeString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")
+				if err != nil {
+					log.Println(err)
+					return
+				}
+
+				cmd.Conn.Write(encodeRDB(string(emptyRDB)))
+
+				redis.Config.Slaves = append(redis.Config.Slaves, &Slave{
+					Conn: cmd.Conn,
+				})
+
+				log.Println("Connected to slave")
+			}
+		case String:
+		default:
+			cmd.Conn.Write(encodeString("OK"))
+		}
+	}
+}
+
 func propogateCommand(redis *RedisServer, command string, args []Value) {
 	for _, slave := range redis.Config.Slaves {
-		arr := make([]Value, 0)
-		arr = append(arr, Value{
-			Type: BulkString,
-			Bulk: command,
-		})
+		if slave.Conn == nil {
+			log.Println("Slave connection is nil, skipping propagation")
+			continue
+		}
+
+		arr := []Value{
+			{
+				Type: BulkString,
+				Bulk: command,
+			},
+		}
 		arr = append(arr, args...)
 		encodedCommand := encodeArray(arr)
 
 		log.Println("Propogating command to slave", slave.Conn.RemoteAddr())
-		_, err := slave.Conn.Write(encodedCommand)
-		if err != nil {
-			log.Print("Error writing to slave", err)
+
+		// Retry mechanism
+		retries := 3
+		for retries > 0 {
+			_, err := slave.Conn.Write(encodedCommand)
+			if err != nil {
+				log.Printf("Error writing to slave %s: %v", slave.Conn.RemoteAddr(), err)
+				retries--
+				if retries == 0 {
+					log.Printf("Failed to propagate command '%s' to slave %s after retries", command, slave.Conn.RemoteAddr())
+				}
+			} else {
+				break
+			}
 		}
 	}
 }
@@ -71,9 +136,9 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 			}
 		}
 
-		go redis.Set(args[0].Raw, args[1].Raw, expiry)
+		redis.Set(args[0].Raw, args[1].Raw, expiry)
+		propogateCommand(redis, command, args)
 
-		go propogateCommand(redis, command, args)
 		return encodeString("OK"), nil
 	case "GET":
 		if len(args) != 1 {
@@ -85,11 +150,9 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 			return []byte(ErrKeyNotFound), nil
 		}
 
-		if value.Expiry > 0 {
-			if value.Expiry < time.Now().UnixMilli() {
-				redis.Del(args[0].Raw)
-				return []byte(ErrKeyNotFound), nil
-			}
+		if value.Expiry > 0 && value.Expiry < time.Now().UnixMilli() {
+			redis.Del(args[0].Raw)
+			return []byte(ErrKeyNotFound), nil
 		}
 
 		return encodeBulkString(value.Value), nil
