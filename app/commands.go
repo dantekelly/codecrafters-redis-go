@@ -177,12 +177,32 @@ func RunCommand(redis *RedisServer, command string, args []Value) ([]byte, error
 			log.Print("Invalid argument")
 			return nil, ErrInvalidArgument
 		}
-		if len(args) < 2 || len(args) > 3 {
+
+		if len(args) < 1 {
 			log.Print("Wrong number of arguments")
 			return nil, ErrWrongNumberOfArgsRepl
 		}
 
-		switch args[0].Raw {
+		firstArg := strings.ToLower(args[0].Raw)
+
+		switch firstArg {
+		case "getack":
+			response := []Value{
+				{
+					Type: BulkString,
+					Bulk: "REPLCONF",
+				},
+				{
+					Type: BulkString,
+					Bulk: "ACK",
+				},
+				{
+					Type: BulkString,
+					Bulk: "0",
+				},
+			}
+
+			return encodeArray(response), nil
 		case "listening-port":
 			return encodeString("OK"), nil
 		case "capa":
